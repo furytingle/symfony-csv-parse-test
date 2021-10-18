@@ -6,14 +6,18 @@ namespace App\Services\Import\Conditions;
 
 use App\Entity\Product;
 
-class CostAndStockCondition implements ProductFilerCondition
+class CostAndStockCondition implements ProductFileCondition
 {
-    public const MIN_COST = 5;
+    private const MIN_COST = 5;
 
-    public const MIN_STOCK = 10;
+    private const MIN_STOCK = 10;
 
+    /**
+     * @param Product $product
+     * @return bool
+     */
     public function pass(Product $product): bool
     {
-        return ((float) $product->getCost() > self::MIN_COST) || ($product->getStock() > self::MIN_STOCK);
+        return ((float) $product->getCost() >= self::MIN_COST) || ($product->getStock() >= self::MIN_STOCK);
     }
 }

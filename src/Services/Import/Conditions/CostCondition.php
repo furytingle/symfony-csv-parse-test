@@ -6,10 +6,14 @@ namespace App\Services\Import\Conditions;
 
 use App\Entity\Product;
 
-class CostCondition implements ProductFilerCondition
+class CostCondition implements ProductFileCondition
 {
-    public const MAX_COST = 1000;
+    private const MAX_COST = 1000;
 
+    /**
+     * @param Product $product
+     * @return bool
+     */
     public function pass(Product $product): bool
     {
         return (float)$product->getCost() < self::MAX_COST;

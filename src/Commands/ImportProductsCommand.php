@@ -13,8 +13,14 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 class ImportProductsCommand extends Command
 {
+    /**
+     * @var string
+     */
     protected static $defaultDescription = 'Imports products from given csv file';
 
+    /**
+     * @var string
+     */
     protected static $defaultName = 'product:import';
 
     public function __construct(private ImportProductsServiceInterface $importProductsService)
@@ -33,13 +39,17 @@ class ImportProductsCommand extends Command
         );
     }
 
+    /**
+     * @param InputInterface $input
+     * @param OutputInterface $output
+     * @return int
+     */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $path = $input->getArgument('path');
         $test = $input->getOption('test');
 
-        $this->importProductsService->importFromCSV($path, $test);
-
+        $this->importProductsService->importFromFile($path, $test);
         $output->writeln('<info>Finished !</info>');
 
         $processed = $this->importProductsService->getRowsProcessed();

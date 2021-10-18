@@ -19,7 +19,7 @@ final class ImportProductFilterConditionTest extends TestCase
 
         $this->assertTrue($condition->pass($product));
 
-        $product->setCost('1500.00');
+        $product = $this->makeProduct(cost: '1500.12');
 
         $this->assertFalse($condition->pass($product));
     }
@@ -27,26 +27,24 @@ final class ImportProductFilterConditionTest extends TestCase
     public function testCostAndStockConditionPass(): void
     {
         $product = $this->makeProduct();
-        $product->setCost('25.50')->setStock(15);
 
         $condition = new CostAndStockCondition();
 
         $this->assertTrue($condition->pass($product));
 
-        $product->setCost('3.99')->setStock(9);
+        $product = $this->makeProduct(stock: 9, cost: '3.99');
 
         $this->assertFalse($condition->pass($product));
     }
 
-    private function makeProduct(): Product
+    private function makeProduct(int $stock = 100, string $cost = '850.50'): Product
     {
-        $product = new Product();
-        $product->setCode('test_code')
-            ->setName('test_name')
-            ->setCost('892.50')
-            ->setStock(100)
-            ->setDescription('Test product description');
-
-        return $product;
+        return new Product(
+            'test_code',
+            'test_name',
+            'Test product description',
+            $stock,
+            $cost
+        );
     }
 }

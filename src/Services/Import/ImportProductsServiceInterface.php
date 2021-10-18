@@ -6,11 +6,24 @@ namespace App\Services\Import;
 
 interface ImportProductsServiceInterface
 {
-    public function importFromCSV(string $path, bool $test = false): void;
+    /**
+     * @param string $path
+     * @param bool $test
+     */
+    public function importFromFile(string $path, bool $test = false): void;
 
+    /**
+     * @return int
+     */
     public function getRowsProcessed(): int;
 
+    /**
+     * @return int
+     */
     public function getRowsFiltered(): int;
 
+    /**
+     * @return int
+     */
     public function getRowsInvalid(): int;
 }

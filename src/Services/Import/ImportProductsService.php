@@ -5,12 +5,13 @@ declare(strict_types=1);
 namespace App\Services\Import;
 
 use App\Entity\Product;
-use App\Exceptions\FileReadException;
+use App\Repository\ProductWriteRepository;
 use App\Services\Import\Conditions\CostAndStockCondition;
 use App\Services\Import\Conditions\CostCondition;
-use App\Services\Import\Conditions\ProductFilerCondition;
+use App\Services\Import\Conditions\ProductFileCondition;
+use App\Services\Import\Exceptions\FileReadException;
+use App\Services\Import\Exceptions\ImportFileReaderException;
 use Carbon\Carbon;
-use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Validator\Constraints\AtLeastOneOf;
 use Symfony\Component\Validator\Constraints\Blank;
 use Symfony\Component\Validator\Constraints\Collection;
@@ -19,48 +20,70 @@ use Symfony\Component\Validator\Constraints\NotBlank;
 use Symfony\Component\Validator\Constraints\PositiveOrZero;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 
-
 class ImportProductsService implements ImportProductsServiceInterface
 {
-    /** @var ProductFilerCondition[] */
+    protected const BATCH_SIZE = 100;
+
+    protected const DISCONTINUED_MARKER = 'yes';
+
+    /**
+     * @var ProductFileCondition[]
+     */
     protected array $conditions = [];
 
-    protected array $headers = [
-        'code',
-        'name',
-        'description',
-        'stock',
-        'cost',
-        'discontinued'
-    ];
-
+    /**
+     * @var int
+     */
     protected int $rowsProcessed = 0;
 
+    /**
+     * @var int
+     */
     protected int $rowsFiltered = 0;
 
+    /**
+     * @var int
+     */
     protected int $rowsInvalid = 0;
 
+    /**
+     * @param ImportFileHelper $importFileHelper
+     * @param ValidatorInterface $validator
+     * @param ProductWriteRepository $writeRepository
+     */
     public function __construct(
+        private ImportFileHelper       $importFileHelper,
         private ValidatorInterface     $validator,
-        private EntityManagerInterface $entityManager
-    )
-    {
+        private ProductWriteRepository $writeRepository
+    ) {
         $this->addCondition(new CostCondition());
         $this->addCondition(new CostAndStockCondition());
     }
 
-    public function addCondition(ProductFilerCondition $condition): void
+    /**
+     * @param ProductFileCondition $condition
+     */
+    public function addCondition(ProductFileCondition $condition): void
     {
         $this->conditions[] = $condition;
     }
 
-    public function importFromCSV(string $path, bool $test = false): void
+    /**
+     * @param string $path
+     * @param bool $test
+     * @throws FileReadException
+     * @throws ImportFileReaderException
+     */
+    public function importFromFile(string $path, bool $test = false): void
     {
         $this->clear();
 
         $validationConstraint = $this->setupProductValidator();
+        $fileReader = $this->importFileHelper->getFileReader($path);
 
-        foreach ($this->readCSVFile($path) as $productItem) {
+        $productsBatch = [];
+
+        foreach ($fileReader->readFile($path) as $productItem) {
             $errors = $this->validator->validate($productItem, $validationConstraint);
 
             if (count($errors) > 0) {
@@ -68,15 +91,15 @@ class ImportProductsService implements ImportProductsServiceInterface
                 continue;
             }
 
-            $product = new Product();
+            $product = new Product(
+                $productItem['code'],
+                $productItem['name'],
+                $productItem['description'],
+                (int)$productItem['stock'],
+                $productItem['cost']
+            );
 
-            $product->setCode($productItem['code'])
-                ->setName($productItem['name'])
-                ->setDescription($productItem['description'])
-                ->setCost($productItem['cost'])
-                ->setStock((int)$productItem['stock']);
-
-            if ($productItem['discontinued'] === 'yes') {
+            if ($productItem['discontinued'] === self::DISCONTINUED_MARKER) {
                 $product->setDiscontinuedAt(Carbon::now()->toDateTimeImmutable());
             }
 
@@ -85,12 +108,20 @@ class ImportProductsService implements ImportProductsServiceInterface
                 continue;
             }
 
-            if (!$test) {
-                $this->insert($product);
+            $productsBatch[] = $product;
+
+            if (count($productsBatch) % self::BATCH_SIZE) {
+                if (!$test) {
+                    $this->writeRepository->batchInsert($productsBatch);
+                }
+
+                $productsBatch = [];
             }
 
             $this->rowsProcessed++;
         }
+
+        $this->writeRepository->batchInsert($productsBatch);
     }
 
     /**
@@ -117,36 +148,10 @@ class ImportProductsService implements ImportProductsServiceInterface
         return $this->rowsInvalid;
     }
 
-    private function readCSVFile(string $path): iterable
-    {
-        try {
-            $fs = fopen($path, 'r');
-        } catch (\Throwable $e) {
-            throw new FileReadException('No such file');
-        }
-
-        if (!$fs) {
-            throw new FileReadException();
-        }
-
-        $row = 0;
-
-        while (($item = fgetcsv($fs, 1000, ',')) !== false) {
-
-            if ($row === 0) {
-                $row++;
-                //Not going to use headers from file
-                continue;
-            }
-
-            yield $this->prepareProduct($item);
-
-            $row++;
-        }
-
-        fclose($fs);
-    }
-
+    /**
+     * @param Product $product
+     * @return bool
+     */
     private function applyFilers(Product $product): bool
     {
         foreach ($this->conditions as $condition) {
@@ -158,26 +163,9 @@ class ImportProductsService implements ImportProductsServiceInterface
         return true;
     }
 
-    private function prepareProduct(array $productRow): array
-    {
-        $formattedProduct = [];
-
-        foreach ($this->headers as $i => $header) {
-            $formattedProduct[$header] = $productRow[$i] ?? '';
-        }
-
-        return $formattedProduct;
-    }
-
-    private function insert(Product $product): void
-    {
-        $product->setCreatedAt(Carbon::now()->toDateTimeImmutable());
-
-        $this->entityManager->persist($product);
-        $this->entityManager->flush();
-        $this->entityManager->clear();
-    }
-
+    /**
+     * @return Collection
+     */
     private function setupProductValidator(): Collection
     {
         return new Collection([
@@ -196,6 +184,9 @@ class ImportProductsService implements ImportProductsServiceInterface
         ]);
     }
 
+    /**
+     * Clears counters
+     */
     private function clear(): void
     {
         $this->rowsProcessed = 0;

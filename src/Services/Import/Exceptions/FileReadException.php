@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Exceptions;
+namespace App\Services\Import\Exceptions;
 
 class FileReadException extends \Exception
 {
